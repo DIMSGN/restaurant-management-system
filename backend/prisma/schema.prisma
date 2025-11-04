@@ -1,0 +1,197 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// AUTHENTICATION
+// ============================================================================
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique @db.VarChar(50)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role         UserRole @default(WAITER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  sales        Sale[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  WAITER
+}
+
+// ============================================================================
+// INVENTORY SYSTEM
+// ============================================================================
+
+model Unit {
+  id               Int       @id @default(autoincrement())
+  name             String    @unique @db.VarChar(50)
+  conversionFactor Decimal?  @map("conversion_factor") @db.Decimal(10, 4)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  products         Product[]
+
+  @@index([name], name: "idx_units_name")
+  @@map("units")
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique @db.VarChar(255)
+  description String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  products    Product[]
+
+  @@index([name], name: "idx_categories_name")
+  @@map("categories")
+}
+
+model Product {
+  id             Int       @id @default(autoincrement()) @map("product_id")
+  name           String    @map("product_name") @db.VarChar(255)
+  unitId         Int       @map("unit_id")
+  categoryId     Int       @map("category_id")
+  amount         Decimal   @default(0) @db.Decimal(10, 2)
+  price          Decimal?  @db.Decimal(10, 2)
+  purchasePrice  Decimal?  @map("purchase_price") @db.Decimal(10, 2)
+  receivedDate   DateTime  @map("received_date") @db.Date
+  expirationDate DateTime  @map("expiration_date") @db.Date
+  minimumStock   Decimal   @default(0) @map("minimum_stock") @db.Decimal(10, 2)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  unit              Unit                @relation(fields: [unitId], references: [id])
+  category          Category            @relation(fields: [categoryId], references: [id])
+  recipeIngredients RecipeIngredient[]
+  rules             Rule[]
+  sales             Sale[]
+
+  @@index([categoryId], name: "idx_products_category")
+  @@index([unitId], name: "idx_products_unit")
+  @@index([name], name: "idx_products_name")
+  @@index([expirationDate], name: "idx_products_expiration")
+  @@map("products")
+}
+
+// ============================================================================
+// RECIPE MANAGEMENT
+// ============================================================================
+
+model Recipe {
+  id          Int      @id @default(autoincrement()) @map("recipe_id")
+  name        String   @unique @db.VarChar(255)
+  description String?  @db.Text
+  salePrice   Decimal? @map("sale_price") @db.Decimal(10, 2)
+  createdAt   DateTime @default(now()) @map("created_at")
+  
+  // Relations
+  ingredients RecipeIngredient[]
+  sales       Sale[]
+
+  @@map("recipes")
+}
+
+model RecipeIngredient {
+  id        Int     @id @default(autoincrement())
+  recipeId  Int     @map("recipe_id")
+  productId Int     @map("product_id")
+  amount    Decimal @db.Decimal(10, 2)
+  
+  // Relations
+  recipe  Recipe  @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([recipeId], name: "idx_recipe_ingredients_recipe")
+  @@index([productId], name: "idx_recipe_ingredients_product")
+  @@map("recipe_ingredients")
+}
+
+// ============================================================================
+// STOCK RULES & ALERTS
+// ============================================================================
+
+model Rule {
+  id                  Int        @id @default(autoincrement())
+  productId           Int        @map("product_id")
+  ruleName            String     @map("rule_name") @db.VarChar(255)
+  comparison          Comparison
+  thresholdAmount     Decimal    @map("threshold_amount") @db.Decimal(10, 2)
+  alertColor          String     @default("red") @map("alert_color") @db.VarChar(50)
+  notificationEnabled Boolean    @default(true) @map("notification_enabled")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  
+  // Relations
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId], name: "idx_rules_product")
+  @@map("rules")
+}
+
+enum Comparison {
+  LT  @map("<")
+  GT  @map(">")
+  EQ  @map("=")
+  LTE @map("<=")
+  GTE @map(">=")
+}
+
+// ============================================================================
+// SALES TRACKING
+// ============================================================================
+
+model Sale {
+  id            Int           @id @default(autoincrement())
+  recipeId      Int?          @map("recipe_id")
+  productId     Int?          @map("product_id")
+  userId        Int?          @map("user_id")
+  quantitySold  Decimal       @map("quantity_sold") @db.Decimal(10, 2)
+  saleDate      DateTime      @map("sale_date") @db.Date
+  salePrice     Decimal       @map("sale_price") @db.Decimal(10, 2)
+  costOfGoods   Decimal?      @map("cost_of_goods") @db.Decimal(10, 2)
+  profit        Decimal?      @db.Decimal(10, 2)
+  category      SaleCategory  @default(food)
+  paymentMethod PaymentMethod @default(cash) @map("payment_method")
+  notes         String?       @db.VarChar(255)
+  createdAt     DateTime      @default(now()) @map("created_at")
+  
+  // Relations
+  recipe  Recipe?  @relation(fields: [recipeId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@index([saleDate], name: "idx_sales_date")
+  @@index([category], name: "idx_sales_category")
+  @@index([userId], name: "idx_sales_user")
+  @@map("sales")
+}
+
+enum SaleCategory {
+  food
+  cocktail
+  coffee
+  drink
+}
+
+enum PaymentMethod {
+  cash
+  card
+  mobile
+  other
+}
